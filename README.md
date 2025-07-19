@@ -4,19 +4,6 @@ This project uses **Stagehand** for natural language browser automation to
 automatically order flowers online. Stagehand is absolutely goated for making
 browser automation more resilient and easier to maintain!
 
-## Features
-
-- 🌹 **Natural Language Automation**: Uses Stagehand to control the browser with
-  simple English commands
-- 🧠 **AI-Powered**: Leverages LLMs to understand webpage structure and adapt to
-  changes
-- ☁️ **Browserbase Integration**: Runs on cloud browsers for reliability and
-  scalability
-- 🛡️ **Safe by Default**: Runs in dry-run mode to prevent accidental orders
-- 📊 **Order Summary**: Extracts and displays order details before submission
-
-## Prerequisites
-
 1. **Browserbase Account**: Sign up at
    [browserbase.com](https://browserbase.com)
 2. **OpenAI API Key**: Get one from
