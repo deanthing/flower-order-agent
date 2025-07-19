@@ -1,8 +1,14 @@
 import 'dotenv/config';
 import { Stagehand } from '@browserbasehq/stagehand';
+import { Browserbase } from '@browserbasehq/sdk';
 import { z } from 'zod';
 
 async function main() {
+  // Initialize Browserbase SDK for live session access
+  const bb = new Browserbase({
+    apiKey: process.env.BROWSERBASE_API_KEY!,
+  });
+
   // Initialize Stagehand with Browserbase
   const stagehand = new Stagehand({
     env: "BROWSERBASE", // Use Browserbase cloud browsers
@@ -60,77 +66,102 @@ async function main() {
     await page.waitForTimeout(2000);
     console.log("✓ Navigated to checkout");
 
-    // 7. Use Stagehand agent for complex form filling
-    const agent = stagehand.agent();
+    // 7. INTERRUPT AT CHECKOUT STAGE - Get live link for manual completion
+    console.log("\n🛒 CHECKOUT STAGE REACHED - MANUAL INTERVENTION REQUIRED");
     
-    console.log("Using AI agent to fill shipping information...");
-    await agent.execute(`
-      Fill out the recipient shipping information with the following details:
-      - Name: ${process.env.FLOWER_RECIPIENT_NAME}
-      - Address: ${process.env.FLOWER_RECIPIENT_ADDRESS1}
-      - City: ${process.env.FLOWER_RECIPIENT_CITY}
-      - State: ${process.env.FLOWER_RECIPIENT_STATE}
-      - ZIP: ${process.env.FLOWER_RECIPIENT_ZIP}
-      - Phone: ${process.env.FLOWER_RECIPIENT_PHONE}
-    `);
-    console.log("✓ Filled shipping information");
-
-    // 8. Add gift message if field exists
     try {
-      await page.act(`Add gift message: "${process.env.FLOWER_CARD_MESSAGE}"`);
-      console.log("✓ Added gift message");
-    } catch (e) {
-      console.log("• No gift message field found, continuing...");
-    }
-
-    // 9. Continue to payment
-    await page.act("Continue to payment or proceed to payment");
-    await page.waitForTimeout(2000);
-    console.log("✓ Proceeded to payment section");
-
-    // 10. Fill payment information using agent for complex form handling
-    console.log("Using AI agent to fill payment information...");
-    await agent.execute(`
-      Fill out the payment information with the following details:
-      - Card Number: ${process.env.PAYMENT_CARD_NUMBER}
-      - Expiration: ${process.env.PAYMENT_CARD_EXP}
-      - CVV/CVC: ${process.env.PAYMENT_CARD_CVC}
-      - Billing ZIP: ${process.env.PAYMENT_CARD_ZIP}
+      // Try multiple ways to get the session ID
+      let sessionId: string | null = null;
       
-      Handle any iframes or embedded payment forms as needed.
-    `);
-    console.log("✓ Filled payment information");
-
-    // 11. Extract order summary before submitting
-    const orderSummary = await page.extract({
-      instruction: "Extract the order total, item details, and delivery information",
-      schema: z.object({
-        total: z.string().describe("The total price of the order"),
-        items: z.string().describe("Description of flower items"),
-        deliveryInfo: z.string().describe("Delivery date and recipient info"),
-      }),
-    });
-
-    console.log("\n📋 Order Summary:");
-    console.log(`Total: ${orderSummary.total}`);
-    console.log(`Items: ${orderSummary.items}`);
-    console.log(`Delivery: ${orderSummary.deliveryInfo}`);
-
-    // 12. STOP HERE - Don't actually submit (this is a dry run)
-    console.log("\n🛑 DRY RUN COMPLETE - Order ready but not submitted");
-    console.log("To submit, uncomment the line below and run again:");
-    console.log("// await page.act('Submit order' or 'Place order');");
-
-    // Uncomment this line ONLY when you're ready to actually place the order:
-    // await page.act("Submit the order or place the order");
+      // Method 1: Try to get from Stagehand context
+      sessionId = (stagehand as any).sessionId || (stagehand as any).context?.sessionId || (stagehand as any)._sessionId;
+      
+      // Method 2: If not found, get the most recent active session
+      if (!sessionId) {
+        console.log("🔍 Searching for active session...");
+        const sessions = await bb.sessions.list();
+        const activeSessions = sessions.filter((session: any) => session.status === 'RUNNING');
+        if (activeSessions.length > 0) {
+          // Get the most recent active session
+          sessionId = activeSessions[activeSessions.length - 1].id;
+          console.log(`✓ Found active session: ${sessionId}`);
+        }
+      }
+      
+      if (sessionId) {
+        // Get live view link from Browserbase
+        const liveViewLinks = await bb.sessions.debug(sessionId);
+        const liveViewLink = liveViewLinks.debuggerFullscreenUrl;
+        
+        console.log("\n🔗 BROWSERBASE LIVE LINK:");
+        console.log(`👆 Click here to take control: ${liveViewLink}`);
+        console.log("\nYou can now:");
+        console.log("- Fill in shipping information");
+        console.log("- Add gift messages");
+        console.log("- Fill in your credit card information");
+        console.log("- Complete the payment process");
+        console.log("- Submit the order when ready");
+        console.log("\n⚠️  The browser session will remain open for manual completion");
+        console.log("⚠️  Remember to close this script when done to end the session");
+        
+        // Keep the session alive for manual completion
+        console.log("\n⏳ Session is live and waiting for manual completion...");
+        console.log("Press Ctrl+C to end the session when finished");
+        
+        // Keep the process alive indefinitely until user interrupts
+        await new Promise(() => {
+          process.on('SIGINT', () => {
+            console.log('\n\n👋 Session ending...');
+            stagehand.close().then(() => {
+              console.log('🏁 Browser session closed');
+              process.exit(0);
+            });
+          });
+        });
+        
+      } else {
+        console.log("❌ Could not retrieve session ID for live link");
+        console.log("💡 The browser session is still active - you can find it in your Browserbase dashboard");
+        console.log("📱 Go to: https://dashboard.browserbase.com/sessions");
+        console.log("Please complete checkout manually and then press Ctrl+C to end this script");
+        
+        // Keep the process alive
+        await new Promise(() => {
+          process.on('SIGINT', () => {
+            console.log('\n\n👋 Session ending...');
+            stagehand.close().then(() => {
+              console.log('🏁 Browser session closed');
+              process.exit(0);
+            });
+          });
+        });
+      }
+    } catch (error) {
+      console.error("❌ Error getting live view link:", error);
+      console.log("💡 The browser session is still active - you can find it in your Browserbase dashboard");
+      console.log("📱 Go to: https://dashboard.browserbase.com/sessions");
+      console.log("Please complete checkout manually and then press Ctrl+C to end this script");
+      
+      // Keep the process alive
+      await new Promise(() => {
+        process.on('SIGINT', () => {
+          console.log('\n\n👋 Session ending...');
+          stagehand.close().then(() => {
+            console.log('🏁 Browser session closed');
+            process.exit(0);
+          });
+        });
+      });
+    }
 
   } catch (error) {
     console.error("❌ Error during flower ordering:", error);
-    throw error;
-  } finally {
+    console.log("🏁 Closing browser session due to error");
     await stagehand.close();
-    console.log("🏁 Browser session closed");
+    throw error;
   }
+  // Note: Browser session intentionally kept open for manual checkout completion
+  // Session will be closed when user presses Ctrl+C
 }
 
 main().catch(err => {
